@@ -4,3 +4,5 @@ extern fn sukets_connect(ip: char*, port: int) -> int;
 extern fn sukets_send(sock: int, data: char*, len: int) -> int;
 extern fn sukets_recv(sock: int, buffer: char*, max_len: int) -> int;
 extern fn sukets_close(sock: int) -> int;
+extern fn sukets_get_last_error() -> int;
+extern fn sukets_set_timeout(sock: int, milliseconds: int) -> int;
