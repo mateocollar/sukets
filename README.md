@@ -122,11 +122,11 @@ fn main() -> int {
 ### Compilación con Itsuki
 
 ~~~bash
-# Ejecutar directamente (incluyendo el runtime C de sukets)
-itsuki run main.suki sukets.c
+# Ejecutar directamente
+itsuki run main.suki
 
 # Generar binario
-itsuki build main.suki sukets.c -o mi_programa
+itsuki build main.suki -o mi_programa
 ~~~
 
 Verificá el entorno antes de compilar:
@@ -200,7 +200,7 @@ itsuki doctor
 
 # Mantenedor
 
-Esta librería está hecha y mantenida oficialmente por [Mateo Collar](https://github.com/mateocollar/sukets)
+Esta librería está hecha y mantenida oficialmente por [Mateo Collar](https://github.com/mateocollar/sukets).
 
 ---
 
