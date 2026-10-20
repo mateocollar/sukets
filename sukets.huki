@@ -1,8 +1,44 @@
+// sukets.huki — Sockets para Itsuki
+// v2.0.0 — Multiplataforma (Windows / Linux)
+
 #pragma once
 
-extern fn sukets_connect(ip: char*, port: int) -> int;
+// ----- Ciclo de vida -----
+// Llamar a sukets_init() una vez al iniciar el programa
+// y sukets_cleanup() al terminar.
+extern fn sukets_init() -> int;
+extern fn sukets_cleanup() -> void;
+extern fn sukets_get_last_error() -> int;
+
+// ----- TCP — Cliente -----
+// host acepta IP ("127.0.0.1") o nombre DNS ("example.com").
+// Errores: -1 init, -2 socket, -3 DNS, -4 connect.
+extern fn sukets_connect(host: char*, port: int) -> int;
+
+// ----- TCP — Servidor -----
+// host: IP local o NULL (0) para escuchar en todas las interfaces.
+// Errores: -1 init, -2 socket, -3 bind, -4 listen.
+extern fn sukets_server_create(host: char*, port: int, backlog: int) -> int;
+extern fn sukets_accept(server_sock: int) -> int;
+
+// ----- Envio y recepcion -----
+// send/recv: semantica clasica (pueden procesar menos bytes).
+// send_all/recv_all: garantizan el total (recv_all agrega '\0').
 extern fn sukets_send(sock: int, data: char*, len: int) -> int;
 extern fn sukets_recv(sock: int, buffer: char*, max_len: int) -> int;
-extern fn sukets_close(sock: int) -> int;
-extern fn sukets_get_last_error() -> int;
+extern fn sukets_send_all(sock: int, data: char*, len: int) -> int;
+extern fn sukets_recv_all(sock: int, buffer: char*, max_len: int) -> int;
+
+// ----- Opciones -----
 extern fn sukets_set_timeout(sock: int, milliseconds: int) -> int;
+extern fn sukets_set_nodelay(sock: int, enabled: int) -> int;
+extern fn sukets_peer_ip(sock: int, ip_buf: char*, ip_len: int) -> int;
+extern fn sukets_close(sock: int) -> int;
+
+// ----- UDP -----
+extern fn sukets_udp_open() -> int;
+extern fn sukets_udp_bind(sock: int, host: char*, port: int) -> int;
+extern fn sukets_udp_sendto(sock: int, host: char*, port: int, data: char*, len: int) -> int;
+extern fn sukets_udp_recvfrom(sock: int, buffer: char*, max_len: int, src_ip: char*, src_port: int*) -> int;
+extern fn sukets_udp_broadcast(sock: int, enabled: int) -> int;
+extern fn sukets_udp_close(sock: int) -> int;

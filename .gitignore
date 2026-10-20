@@ -56,3 +56,4 @@ dkms.conf
 
 # Itsuki specific
 test_sukets.suki
+tests/
