@@ -1,44 +1,203 @@
+// ==================================================================
 // sukets.huki — Sockets para Itsuki
-// v2.0.0 — Multiplataforma (Windows / Linux)
+// v2.2.0 — Multiplataforma (Windows / Linux)
+//
+// TCP, UDP, sockets raw, multiplexacion y errores unificados.
+//
+// Uso basico:
+//     sk_init();
+//     var sock: int = sk_tcp_connect("127.0.0.1", 8080);
+//     sk_send_all(sock, "hola", 4);
+//     var buf: char[512];
+//     var n: int = sk_recv_all(sock, buf, 512);
+//     sk_close(sock);
+//     sk_cleanup();
+//
+// IMPORTANTE: el compilador de Itsuki descubre solo los archivos
+// .c del proyecto. No pases sukets.c en la linea de comandos:
+//     itsuki run mi_test.suki -lws2_32
+// ==================================================================
 
 #pragma once
 
-// ----- Ciclo de vida -----
-// Llamar a sukets_init() una vez al iniciar el programa
-// y sukets_cleanup() al terminar.
-extern fn sukets_init() -> int;
-extern fn sukets_cleanup() -> void;
-extern fn sukets_get_last_error() -> int;
+// ------------------------------------------------------------------
+// Codigos de error unificados (sk_last_error)
+// Son los mismos en Windows y Linux.
+// ------------------------------------------------------------------
 
-// ----- TCP — Cliente -----
-// host acepta IP ("127.0.0.1") o nombre DNS ("example.com").
-// Errores: -1 init, -2 socket, -3 DNS, -4 connect.
-extern fn sukets_connect(host: char*, port: int) -> int;
+enum SkError {
+    SK_E_OK = 0,            // sin error
+    SK_E_WOULD_BLOCK = 1,   // no hay datos todavia (no bloqueante)
+    SK_E_CONN_RESET = 2,     // el peer cerro la conexion abruptamente
+    SK_E_CONN_REFUSED = 3,   // nadie escucha en ese puerto
+    SK_E_TIMED_OUT = 4,      // vencio el timeout (sk_set_timeout)
+    SK_E_UNREACH = 5,        // red inalcanzable
+    SK_E_IN_PROGRESS = 6,    // conexion en curso
+    SK_E_ACCESS = 8          // falta de permisos (raw, puerto < 1024)
+    // -1 = desconocido: consultar sk_native_error()
+};
 
-// ----- TCP — Servidor -----
-// host: IP local o NULL (0) para escuchar en todas las interfaces.
+// ------------------------------------------------------------------
+// 1. Ciclo de vida
+// ------------------------------------------------------------------
+
+// Inicializa la capa de red. Llamar UNA vez al iniciar.
+// Es idempotente: llamarla de nuevo no hace nada.
+// Retorna 0 si todo bien, -1 si fallo.
+extern fn sk_init() -> int;
+
+// Libera los recursos de la capa de red. Llamar UNA vez al terminar.
+extern fn sk_cleanup() -> void;
+
+// Ultimo error ocurrido en el OS, con el codigo SIN unificar.
+// Solo para debugging: usa sk_last_error para logica portable.
+extern fn sk_native_error() -> int;
+
+// Ultimo error del OS convertido a un codigo SkError (portable).
+extern fn sk_last_error() -> int;
+
+// ------------------------------------------------------------------
+// 2. TCP — cliente
+// ------------------------------------------------------------------
+
+// Conecta a host:port y retorna el descriptor del socket.
+// host: IP ("127.0.0.1") o dominio DNS ("example.com").
+// Errores: -1 init fallo, -2 socket, -3 DNS invalido, -4 connect fallo.
+extern fn sk_tcp_connect(host: char*, port: int) -> int;
+
+// ------------------------------------------------------------------
+// 3. TCP — servidor
+// ------------------------------------------------------------------
+
+// Crea un servidor TCP en escucha y retorna el socket servidor.
+// host: IP local para escuchar, o NULL para todas las interfaces.
+// backlog: cuantas conexiones pendientes acepta el SO.
 // Errores: -1 init, -2 socket, -3 bind, -4 listen.
-extern fn sukets_server_create(host: char*, port: int, backlog: int) -> int;
-extern fn sukets_accept(server_sock: int) -> int;
+extern fn sk_tcp_server(host: char*, port: int, backlog: int) -> int;
 
-// ----- Envio y recepcion -----
-// send/recv: semantica clasica (pueden procesar menos bytes).
-// send_all/recv_all: garantizan el total (recv_all agrega '\0').
-extern fn sukets_send(sock: int, data: char*, len: int) -> int;
-extern fn sukets_recv(sock: int, buffer: char*, max_len: int) -> int;
-extern fn sukets_send_all(sock: int, data: char*, len: int) -> int;
-extern fn sukets_recv_all(sock: int, buffer: char*, max_len: int) -> int;
+// Acepta una conexion pendiente del socket servidor.
+// Retorna el socket del cliente o -1 si fallo.
+// Bloquea hasta que llegue una conexion (salvo timeout del servidor).
+extern fn sk_accept(server: int) -> int;
 
-// ----- Opciones -----
-extern fn sukets_set_timeout(sock: int, milliseconds: int) -> int;
-extern fn sukets_set_nodelay(sock: int, enabled: int) -> int;
-extern fn sukets_peer_ip(sock: int, ip_buf: char*, ip_len: int) -> int;
-extern fn sukets_close(sock: int) -> int;
+// ------------------------------------------------------------------
+// 4. Envio y recepcion (TCP)
+// ------------------------------------------------------------------
 
-// ----- UDP -----
-extern fn sukets_udp_open() -> int;
-extern fn sukets_udp_bind(sock: int, host: char*, port: int) -> int;
-extern fn sukets_udp_sendto(sock: int, host: char*, port: int, data: char*, len: int) -> int;
-extern fn sukets_udp_recvfrom(sock: int, buffer: char*, max_len: int, src_ip: char*, src_port: int*) -> int;
-extern fn sukets_udp_broadcast(sock: int, enabled: int) -> int;
-extern fn sukets_udp_close(sock: int) -> int;
+// Envia hasta len bytes. Retorna los bytes enviados o -1.
+// OJO: puede enviar MENOS de los pedidos; usá sk_send_all si
+// necesitas garantia de envio completo.
+extern fn sk_send(sock: int, data: char*, len: int) -> int;
+
+// Recibe hasta max_len bytes. Retorna los bytes leidos,
+// 0 si el peer cerro la conexion, o -1 en error/timeout.
+extern fn sk_recv(sock: int, buffer: char*, max_len: int) -> int;
+
+// Enja TODOS los len bytes (reintenta hasta completar).
+// Retorna el total enviado o -1 en error.
+extern fn sk_send_all(sock: int, data: char*, len: int) -> int;
+
+// Recibe hasta max_len-1 bytes COMPLETOS y agrega '\0' al final.
+// Bloquea hasta llenar el buffer, que el peer cierre o haya error.
+// Retorna el total leido, 0 en cierre del peer, o -1 en error.
+extern fn sk_recv_all(sock: int, buffer: char*, max_len: int) -> int;
+
+// ------------------------------------------------------------------
+// 5. Opciones de socket
+// ------------------------------------------------------------------
+
+// Timeout en milisegundos para recv y send del socket.
+// 0 = bloqueante (espera indefinida). Retorna 0 o -1.
+extern fn sk_set_timeout(sock: int, milliseconds: int) -> int;
+
+// 1 = desactiva Nagle (envia paquetes cortos inmediatamente,
+// util para mensajeria/protocolos interactivos). 0 = activar Nagle.
+extern fn sk_set_nodelay(sock: int, enabled: int) -> int;
+
+// 1 = el SO detecta peers muertos con keepalive de TCP.
+extern fn sk_set_keepalive(sock: int, enabled: int) -> int;
+
+// 1 = permite reusar la direccion local (evita "address in use"
+// al reiniciar el servidor). Ya lo aplica sk_tcp_server.
+extern fn sk_set_reuseaddr(sock: int, enabled: int) -> int;
+
+// Escribe en ip_buf la IP del otro extremo de la conexion.
+// ip_buf necesita al menos 16 bytes. Retorna 0 o -1.
+extern fn sk_peer_ip(sock: int, ip_buf: char*, ip_len: int) -> int;
+
+// Retorna el puerto local del socket o -1.
+// Util tras sk_udp_bind(sock, NULL, 0) para saber el puerto efimero.
+extern fn sk_local_port(sock: int) -> int;
+
+// Cierra solo uno (o ambos) sentidos de la conexion sin liberar
+// el descriptor. El peer ve un cierre ordenado.
+// how: 0 = dejar de recibir, 1 = dejar de enviar, 2 = ambos.
+extern fn sk_shutdown(sock: int, how: int) -> int;
+
+// Cierra el socket y libera el descriptor. TCP y UDP.
+extern fn sk_close(sock: int) -> int;
+
+// ------------------------------------------------------------------
+// 6. Multiplexacion
+// ------------------------------------------------------------------
+
+// Espera a que CUALQUIERA de los sockets tenga datos listos.
+// socks: arreglo de descriptores. count: cuantos hay en el arreglo.
+// timeout_ms: -1 = esperar para siempre; >= 0 milisegundos maximos.
+// Retorna el INDICE del socket listo en socks[], -2 si vencio el
+// timeout, -1 en error. Con esto un servidor atiende varios
+// clientes sin threads.
+extern fn sk_select(socks: int*, count: int, timeout_ms: int) -> int;
+
+// ------------------------------------------------------------------
+// 7. UDP
+// ------------------------------------------------------------------
+
+// Crea un socket UDP no conectado. Retorna descriptor o -1/-2.
+extern fn sk_udp_open() -> int;
+
+// Liga el socket UDP a una direccion local para poder recibir.
+// host: IP local o NULL para todas. port: puerto o 0 (efimero).
+// Errores: -3 IP invalida, -4 bind.
+extern fn sk_udp_bind(sock: int, host: char*, port: int) -> int;
+
+// Envia un datagrama a host:port. Retorna bytes enviados o -1/-3.
+extern fn sk_udp_sendto(sock: int, host: char*, port: int, data: char*, len: int) -> int;
+
+// Recibe un datagrama. Escribe en buffer (agrega '\0').
+// src_ip / src_port son opcionales: pasar NULL / 0 si no te
+// interesa quien lo mando.
+// Retorna bytes leidos, 0 en cierre, -1 en error/timeout.
+extern fn sk_udp_recvfrom(sock: int, buffer: char*, max_len: int, src_ip: char*, src_port: int*) -> int;
+
+// 1 = habilita enviar broadcast a 255.255.255.255.
+extern fn sk_udp_broadcast(sock: int, enabled: int) -> int;
+
+// Cierra un socket UDP.
+extern fn sk_udp_close(sock: int) -> int;
+
+// ------------------------------------------------------------------
+// 8. Sockets raw (requiere privilegios)
+// ------------------------------------------------------------------
+
+// Crea un socket raw para un protocolo IP crudo.
+// protocol: 1 = ICMP (ping), 6 = TCP, 17 = UDP.
+// Requiere root o CAP_NET_RAW en Linux; admin en Windows
+// (y alla el stack limita su uso).
+// Retorna descriptor o -1 init / -2 socket / (8 en sk_last_error
+// si es tema de permisos).
+extern fn sk_raw_open(protocol: int) -> int;
+
+// 1 = vos construis tambien la cabecera IP. Solo Linux.
+// Retorna -9 en Windows (no soportado).
+extern fn sk_raw_include_header(sock: int, enabled: int) -> int;
+
+// Envia un paquete raw a host. protocol: mismo que sk_raw_open.
+extern fn sk_raw_sendto(sock: int, host: char*, protocol: int, data: char*, len: int) -> int;
+
+// Recibe un paquete raw (incluye cabecera IP salvo que uses
+// sk_raw_include_header). src_ip opcional (NULL). Retorna bytes o -1.
+extern fn sk_raw_recvfrom(sock: int, buffer: char*, max_len: int, src_ip: char*) -> int;
+
+// Cierra un socket raw.
+extern fn sk_raw_close(sock: int) -> int;
